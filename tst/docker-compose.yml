@@ -1,0 +1,60 @@
+version: '3.2'
+
+services:
+
+  # redis:
+  #   image: redis:6.0.9-alpine
+  #   # restart: always
+  #   environment:
+  #    - ALLOW_EMPTY_PASSWORD=yes
+  #   # volumes:
+  #   #  - /data/redis:/data
+  #   ports:
+  #    - 6379:6379
+
+  bdd:
+    image: postgres:12.5-alpine
+    # restart: always
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mydb   
+    volumes:
+      - ./data:/var/lib/postgresql
+    ports:
+     - 25432:5432
+
+  k8see-importer:
+    image: sgaunet/k8see-importer:latest
+    depends_on:
+      - bdd
+    environment:
+      - REDIS_HOST=redis-server.company.com
+      - REDIS_PORT=6379
+      - REDIS_STREAM=k8sevents2pg
+      # - REDIS_PASSWORD=
+      - DBHOST=bdd
+      - DBPORT=5432
+      - DBUSER=postgres
+      - DBPASSWORD=password
+      - DBNAME=mydb
+
+  k8see-webui:
+    image: sgaunet/k8see-webui:latest
+    depends_on:
+      - bdd
+    environment:
+      - DBHOST=bdd
+      - DBPORT=5432
+      - DBUSER=postgres
+      - DBPASSWORD=password
+      - DBNAME=mydb
+    ports:
+      - "8080:8081"
+
+
+
+  # redislabs:
+  #   image: redislabs/redisinsight:1.8.1
+  #   ports:
+  #     - 8080:8001
+
