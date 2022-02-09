@@ -31,7 +31,7 @@ RUN addgroup -S k8see_group -g 1000 && adduser -S k8see -G k8see_group --uid 100
 WORKDIR /opt/k8see-importer
 COPY --from=builder /go/src/k8see-importer .
 COPY entrypoint.sh /opt/k8see-importer/entrypoint.sh 
-COPY tst/db /opt/k8see-importer/db
+COPY db /opt/k8see-importer/db
 RUN chmod +x /opt/k8see-importer/entrypoint.sh && touch /opt/k8see-importer/conf.yaml && chmod 777 /opt/k8see-importer/conf.yaml
 
 USER k8see
