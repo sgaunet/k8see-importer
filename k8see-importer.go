@@ -17,11 +17,13 @@ import (
 )
 
 type k8sEvent struct {
-	// e.FirstTimestamp, e.Type, e.Reason, e.Name, e.Message, e.UID
-	Type    string `json: "type"`
-	Reason  string `json: "reason"`
-	Name    string `json: "name"`
-	Message string `json: "message"`
+	EventTime string `json:eventTime`
+	FirstTime string `json:firstTime`
+	Type      string `json: "type"`
+	Reason    string `json: "reason"`
+	Name      string `json: "name"`
+	Message   string `json: "message"`
+	Namespace string `json: "namespace"`
 }
 
 type appK8sRedis2Db struct {
@@ -120,6 +122,7 @@ func (a *appK8sRedis2Db) InitConsumer() {
 		},
 	})
 	if err != nil {
+		log.Errorln("Cannot connect to redis")
 		log.Fatalln(err.Error())
 		os.Exit(1)
 	}
@@ -130,6 +133,7 @@ func (a *appK8sRedis2Db) redis2PG() {
 	a.consumer.Register(a.redisStream, a.process)
 	cnx, err = a.cnxDB()
 	if err != nil {
+		log.Errorln("Cannotconnect to postgres")
 		log.Fatalln(err.Error())
 		os.Exit(1)
 	}
@@ -146,7 +150,23 @@ func (a *appK8sRedis2Db) redis2PG() {
 
 func (a *appK8sRedis2Db) process(msg *redisqueue.Message) error {
 	log.Infof("NEW=> type=%s reason=%s name=%s\n", msg.Values["type"], msg.Values["reason"], msg.Values["name"])
-	a.addUpdateSubcode(time.Now(), msg.Values["name"].(string), msg.Values["reason"].(string), msg.Values["type"].(string), msg.Values["message"].(string))
+	log.Infof("      eventTime=%s firstTime=%s \n", msg.Values["eventTime"], msg.Values["firstTime"])
+	// firsttimestamp
+	layout := "2006-01-02 15:04:05 -0700 MST"
+	// 0001-01-01 00:00:00 +0000 UTC
+	eventTime, err := time.Parse(layout, msg.Values["eventTime"].(string))
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	log.Debugln("eventTime=", eventTime)
+	firstTime, err := time.Parse(layout, msg.Values["firstTime"].(string))
+	if err != nil {
+		fmt.Println(err)
+	}
+	log.Debugln("firstTime=", firstTime)
+	// Need to handle nil values
+	a.addUpdateSubcode(eventTime, firstTime, msg.Values["name"].(string), msg.Values["reason"].(string), msg.Values["type"].(string), msg.Values["message"].(string), msg.Values["namespace"].(string))
 	return nil
 }
 
@@ -170,7 +190,7 @@ func (a *appK8sRedis2Db) cnxDB() (db *sql.DB, err error) {
 	return db, err
 }
 
-func (a *appK8sRedis2Db) addUpdateSubcode(eventDate time.Time, eventName string, eventReason string, eventType string, eventMessage string) error {
+func (a *appK8sRedis2Db) addUpdateSubcode(firstDate time.Time, eventDate time.Time, eventName string, eventReason string, eventType string, eventMessage string, eventNamespace string) error {
 	var err error
 	if !a.isConnectedToDB() {
 		cnx, err = a.cnxDB()
@@ -179,12 +199,20 @@ func (a *appK8sRedis2Db) addUpdateSubcode(eventDate time.Time, eventName string,
 			return err
 		}
 	}
+
 	sqlStatement := `
-INSERT INTO k8sevents (date,name, reason, type,message)
-VALUES ($1, $2, $3,$4,$5)`
-	_, err = cnx.Exec(sqlStatement, eventDate, eventName, eventReason, eventType, eventMessage)
+INSERT INTO k8sevents (firstEventTs,eventTs,name, reason, type,message,namespace)
+VALUES ($1, $2, $3, $4, $5, $6,$7)`
+	_, err = cnx.Exec(sqlStatement, firstDate, eventDate, eventName, eventReason, eventType, eventMessage, eventNamespace)
 	if err != nil {
 		log.Errorf("Insert failed : %s\n", err.Error())
+		log.Debugln("firstDate=", firstDate)
+		log.Debugln("eventDate=", eventDate)
+		log.Debugln("eventName=", eventName)
+		log.Debugln("eventReason=", eventReason)
+		log.Debugln("eventType=", eventType)
+		log.Debugln("eventMessage=", eventMessage)
+		log.Debugln("eventNamespace=", eventName)
 		return err
 	}
 	return err
