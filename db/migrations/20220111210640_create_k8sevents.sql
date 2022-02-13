@@ -2,8 +2,9 @@
 
 CREATE TABLE public.k8sevents
 (
-    firstEventTs timestamp with time zone,
-    eventTs timestamp with time zone,
+    exportedTime timestamp with time zone,
+    firstTime timestamp with time zone,
+    eventTime timestamp with time zone,
     name character varying(100) NOT NULL,
     namespace character varying(100) NOT NULL,
     reason text ,
@@ -11,8 +12,9 @@ CREATE TABLE public.k8sevents
     message character varying(512)
 );
 
-CREATE INDEX firstEventTs_idx    ON public.k8sevents (firstEventTs) ;
-CREATE INDEX EventTs_idx    ON public.k8sevents (EventTs) ;
+CREATE INDEX exportedTime_idx    ON public.k8sevents (exportedTime) ;
+CREATE INDEX firstTime_idx    ON public.k8sevents (firstTime) ;
+CREATE INDEX eventTime_idx    ON public.k8sevents (eventTime) ;
 CREATE INDEX name_idx    ON public.k8sevents (name) ;
 
 -- migrate:down
