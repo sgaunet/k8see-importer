@@ -20,10 +20,6 @@ LABEL maintainer="Sylvain Gaunet"
 LABEL description=""
 
 RUN apk update && apk add --no-cache curl bash
-# RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && \
-#       chmod +x ./kubectl && \
-#       mv ./kubectl /usr/local/bin/kubectl
-
 RUN curl -LO  https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-linux-amd64 && chmod +x dbmate-linux-amd64 && mv dbmate-linux-amd64 /usr/local/bin/dbmate
 
 RUN addgroup -S k8see_group -g 1000 && adduser -S k8see -G k8see_group --uid 1000
