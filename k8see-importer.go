@@ -6,15 +6,17 @@ import (
 	"os"
 	"time"
 
-	//v1 "k8s.io/api/events/v1"
 	"github.com/go-redis/redis/v7"
-	//"github.com/gomodule/redigo/redis"
+
 	"database/sql"
 
 	_ "github.com/lib/pq"
-	"github.com/robinjoseph08/redisqueue/v2"
+
+	"github.com/rs/xid"
 	"github.com/sirupsen/logrus"
 )
+
+const consumersGroup string = "k8see-consumer-group"
 
 type appK8sRedis2Db struct {
 	redisHost     string
@@ -26,12 +28,13 @@ type appK8sRedis2Db struct {
 	dbUser        string
 	dbPassword    string
 	dbName        string
-	consumer      *redisqueue.Consumer
+	redisClient   *redis.Client
 }
 
 var log = logrus.New()
 var cnx *sql.DB
 
+// initTrace initialize log instance with the level in parameter
 func initTrace(debugLevel string) {
 	// Log as JSON instead of the default ASCII formatter.
 	//log.SetFormatter(&log.JSONFormatter{})
@@ -63,7 +66,7 @@ func main() {
 	flag.Parse()
 
 	if fileConfigName == "" {
-		log.Fatal("No config file specified.")
+		log.Fatal("No config file specified. (Mandatory)")
 		os.Exit(1)
 	}
 
@@ -75,9 +78,24 @@ func main() {
 
 	initTrace(cfg.LogLevel)
 	app := NewApp(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, cfg.RedisStream, cfg.DbHost, cfg.DbPort, cfg.DbUser, cfg.DbName, cfg.DbPassword)
-	app.redis2PG()
+	for {
+		time.Sleep(2 * time.Second)
+		err = app.InitConsumer()
+		if err != nil {
+			log.Errorln(err.Error())
+			continue
+		}
+
+		// Call the function that have an infinite loop
+		err = app.redis2PG()
+		if err != nil {
+			log.Errorln(err.Error())
+			continue
+		}
+	}
 }
 
+// NewApp is the factory to get a new instance of the application
 func NewApp(redisHost string, redisPort string, redisPassword string, redisStream string, dbHost string, dbPort string, dbUser string, dbName string, dbPassword string) *appK8sRedis2Db {
 	app := appK8sRedis2Db{
 		redisHost:     redisHost,
@@ -90,52 +108,71 @@ func NewApp(redisHost string, redisPort string, redisPassword string, redisStrea
 		dbUser:        dbUser,
 		dbPassword:    dbPassword,
 	}
-
-	app.InitConsumer()
 	return &app
 }
 
-func (a *appK8sRedis2Db) InitConsumer() {
+// InitConsumer initialise redisClient
+func (a *appK8sRedis2Db) InitConsumer() error {
 	var err error
 	addr := fmt.Sprintf("%s:%s", a.redisHost, a.redisPort)
-	a.consumer, err = redisqueue.NewConsumerWithOptions(&redisqueue.ConsumerOptions{
-		//Name:              "localhost",
-		VisibilityTimeout: 60 * time.Second,
-		BlockingTimeout:   5 * time.Second,
-		ReclaimInterval:   1 * time.Second,
-		BufferSize:        100,
-		Concurrency:       10,
-		RedisOptions: &redis.Options{
-			Addr:     addr,
-			Password: a.redisPassword, // no password set
-			DB:       0,               // use default DB
-		},
+	a.redisClient = redis.NewClient(&redis.Options{
+		Addr: addr,
 	})
+	_, err = a.redisClient.Ping().Result()
 	if err != nil {
-		log.Errorln("Cannot connect to redis")
-		log.Fatalln(err.Error())
-		os.Exit(1)
+		return err
 	}
+	log.Infoln("Connected to Redis server")
+	err = a.redisClient.XGroupCreate(a.redisStream, consumersGroup, "0").Err()
+	if err != nil {
+		log.Errorln(err.Error())
+	}
+	return nil
 }
 
-func (a *appK8sRedis2Db) redis2PG() {
+func (a *appK8sRedis2Db) redis2PG() error {
 	var err error
-	a.consumer.Register(a.redisStream, a.process)
 	cnx, err = a.cnxDB()
 	if err != nil {
-		log.Errorln("Cannot connect to postgres")
-		log.Fatalln(err.Error())
-		os.Exit(1)
+		return err
+	}
+	err = a.InitConsumer()
+	if err != nil {
+		return err
 	}
 
-	go func() {
-		for err := range a.consumer.Errors {
-			// handle errors accordingly
-			log.Errorf("err: %+v\n", err)
+	uniqueID := xid.New().String()
+	for {
+		entries, err := a.redisClient.XReadGroup(&redis.XReadGroupArgs{
+			Group:    consumersGroup,
+			Consumer: uniqueID,
+			Streams:  []string{a.redisStream, ">"},
+			Count:    2,
+			Block:    0,
+			NoAck:    false,
+		}).Result()
+		if err != nil {
+			return err
 		}
-	}()
-	a.consumer.Run()
-	log.Infoln("Stop consumer")
+		for i := 0; i < len(entries[0].Messages); i++ {
+			messageID := entries[0].Messages[i].ID
+			values := entries[0].Messages[i].Values
+			eventTime := convertStrToTime(values["eventTime"].(string))
+			firstTime := convertStrToTime(values["firstTime"].(string))
+			exportedTime := convertStrToTime(values["exportedTime"].(string))
+			log.Infof("NEW=> type=%s reason=%s name=%s\n", values["type"], values["reason"], values["name"])
+			log.Infof("      eventTime=%s firstTime=%s \n", values["eventTime"], values["firstTime"])
+			log.Debugln("eventTime=", eventTime)
+			log.Debugln("firstTime=", firstTime)
+			log.Debugln("exportedTime=", exportedTime)
+			err = a.addUpdateSubcode(exportedTime, eventTime, firstTime, values["name"].(string), values["reason"].(string), values["type"].(string), values["message"].(string), values["namespace"].(string))
+			if err != nil {
+				log.Errorln(err.Error())
+			} else {
+				a.redisClient.XAck(a.redisStream, consumersGroup, messageID)
+			}
+		}
+	}
 }
 
 func convertStrToTime(str string) time.Time {
@@ -147,18 +184,6 @@ func convertStrToTime(str string) time.Time {
 		log.Errorln("convertStrToTime:", err.Error())
 	}
 	return newTime
-}
-
-func (a *appK8sRedis2Db) process(msg *redisqueue.Message) error {
-	log.Infof("NEW=> type=%s reason=%s name=%s\n", msg.Values["type"], msg.Values["reason"], msg.Values["name"])
-	log.Infof("      eventTime=%s firstTime=%s \n", msg.Values["eventTime"], msg.Values["firstTime"])
-
-	eventTime := convertStrToTime(msg.Values["eventTime"].(string))
-	firstTime := convertStrToTime(msg.Values["firstTime"].(string))
-	exportedTime := convertStrToTime(msg.Values["exportedTime"].(string))
-
-	a.addUpdateSubcode(exportedTime, eventTime, firstTime, msg.Values["name"].(string), msg.Values["reason"].(string), msg.Values["type"].(string), msg.Values["message"].(string), msg.Values["namespace"].(string))
-	return nil
 }
 
 func (a *appK8sRedis2Db) cnxDB() (db *sql.DB, err error) {
