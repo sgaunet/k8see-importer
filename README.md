@@ -48,3 +48,31 @@ dbmate wait      # wait for the database server to become available
 ```
 
 
+# Build
+
+This project is using :
+
+* golang 1.17+
+* [task for development](https://taskfile.dev/#/)
+* docker
+* [docker buildx](https://github.com/docker/buildx)
+* docker manifest
+* [goreleaser](https://goreleaser.com/)
+
+## Binary 
+
+```
+task
+```
+
+## Build the image
+
+```
+task image
+```
+
+# Make a release
+
+```
+task release
+```

@@ -1,0 +1,38 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  BINFILE: k8see-importer
+  IMG: sgaunet/k8see-importer:latest
+
+tasks:
+  default:
+    cmds:
+      - go mod tidy
+      - CGO_ENABLED=0 go build .
+      - upx ./{{.BINFILE}}
+    # silent: true
+    method: checksum
+    generates:
+      - "{{.BINFILE}}"
+
+  image:
+    env:
+      GOOS: linux
+      GOARCH: amd64
+    deps: 
+    - default
+    sources:
+      - ./{{.BINFILE}}
+      - Dockerfile
+    cmds:
+      - docker build --build-arg GOOS=$GOOS --build-arg GOARCH=$GOARCH . -t {{.IMG}}
+      - docker push {{.IMG}}
+
+  snapshot:
+    cmds:
+      - GITLAB_TOKEN="" goreleaser --rm-dist --snapshot
+    
+  release:
+    cmds:
+      - GITLAB_TOKEN="" goreleaser --rm-dist
