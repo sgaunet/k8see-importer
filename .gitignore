@@ -2,3 +2,4 @@ schema.sql
 k8see-importer
 dist
 .task
+cots/dbmate*

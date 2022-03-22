@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/go-redis/redis/v7"
@@ -61,22 +62,45 @@ func initTrace(debugLevel string) {
 
 func main() {
 	var err error
+	var cfg YamlConfig
 	var fileConfigName string
 	flag.StringVar(&fileConfigName, "f", "", "YAML file to parse.")
 	flag.Parse()
 
 	if fileConfigName == "" {
-		log.Fatal("No config file specified. (Mandatory)")
-		os.Exit(1)
-	}
-
-	cfg, err := ReadyamlConfigFile(fileConfigName)
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		log.Infoln("No config file specified.")
+		log.Infoln("Try to get configuration with environment variable")
+		cfg.DbHost = os.Getenv("DBHOST")
+		cfg.DbName = os.Getenv("DBNAME")
+		cfg.DbPassword = os.Getenv("DBPASSWORD")
+		cfg.DbPort = os.Getenv("DBPORT")
+		cfg.DbUser = os.Getenv("DBUSER")
+		cfg.RedisHost = os.Getenv("REDIS_HOST")
+		cfg.RedisPort = os.Getenv("REDIS_PORT")
+		cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
+		cfg.RedisStream = os.Getenv("REDIS_STREAM")
+		cfg.LogLevel = os.Getenv("LOGLEVEL")
+	} else {
+		cfg, err = ReadyamlConfigFile(fileConfigName)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
 	}
 
 	initTrace(cfg.LogLevel)
+	if !isConfigValid(cfg) {
+		os.Exit(1)
+	}
+
+	// Init DB with dbmate
+	initEnvVarForDbmate(cfg)
+	err = initDB()
+	if err != nil {
+		log.Fatalln(err.Error())
+		os.Exit(1)
+	}
+
 	app := NewApp(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, cfg.RedisStream, cfg.DbHost, cfg.DbPort, cfg.DbUser, cfg.DbName, cfg.DbPassword)
 	for {
 		time.Sleep(2 * time.Second)
@@ -93,6 +117,65 @@ func main() {
 			continue
 		}
 	}
+}
+
+func isConfigValid(cfg YamlConfig) (res bool) {
+	res = true
+	if cfg.DbHost == "" {
+		log.Errorln("No DbHost set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.DbName == "" {
+		log.Errorln("No DbName set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.DbUser == "" {
+		log.Errorln("No DbUser set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.DbPassword == "" {
+		log.Errorln("No DbPassword set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.DbPort == "" {
+		log.Errorln("No DbPort set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.RedisHost == "" {
+		log.Errorln("No RedisHost set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.RedisStream == "" {
+		log.Errorln("No RedisStream set in environment variable or configuration file")
+		res = false
+	}
+	if cfg.RedisPort == "" {
+		log.Errorln("No RedisPort set in environment variable or configuration file")
+		res = false
+	}
+	return res
+}
+
+func initDB() error {
+	log.Infoln("INFO: Wait for database connection")
+	out, err := exec.Command("dbmate", "wait").Output()
+	if err != nil {
+		return fmt.Errorf("failed to execute : dbmate wait")
+	}
+	log.Infoln(string(out))
+	log.Infoln("INFO: Database is ready")
+	log.Infoln("INFO: create the database (if it does not already exist) and run any pending migrations")
+	out, err = exec.Command("dbmate", "up").Output()
+	if err != nil {
+		return fmt.Errorf("failed to execute : dbmate up")
+	}
+	log.Infoln(string(out))
+	return nil
+}
+
+func initEnvVarForDbmate(cfg YamlConfig) {
+	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DbUser, cfg.DbPassword, cfg.DbHost, cfg.DbPort, cfg.DbName)
+	os.Setenv("DATABASE_URL", dbUrl)
 }
 
 // NewApp is the factory to get a new instance of the application

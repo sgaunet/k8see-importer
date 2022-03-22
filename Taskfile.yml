@@ -16,23 +16,49 @@ tasks:
     generates:
       - "{{.BINFILE}}"
 
+  dlDbmateLinuxAmd64:
+    env:
+      GOOS: linux
+      GOARCH: amd64
+    cmds:
+      - wget https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
+      - chmod +x cots/dbmate-${GOOS}-${GOARCH}
+      - upx cots/dbmate-${GOOS}-${GOARCH}
+    generates:
+      - cots/dbmate-${GOOS}-${GOARCH}
+
+  dlDbmateLinuxArm64:
+    env:
+      GOOS: linux
+      GOARCH: arm64
+    cmds:
+      - wget https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
+      - chmod +x cots/dbmate-${GOOS}-${GOARCH}
+      - upx cots/dbmate-${GOOS}-${GOARCH}
+    generates:
+      - cots/dbmate-${GOOS}-${GOARCH}
+
   image:
     env:
       GOOS: linux
       GOARCH: amd64
     deps: 
     - default
-    sources:
-      - ./{{.BINFILE}}
-      - Dockerfile
+    - dlDbmateLinuxAmd64
     cmds:
       - docker build --build-arg GOOS=$GOOS --build-arg GOARCH=$GOARCH . -t {{.IMG}}
       - docker push {{.IMG}}
 
   snapshot:
+    deps:
+      - dlDbmateLinuxAmd64
+      - dlDbmateLinuxArm64
     cmds:
       - GITLAB_TOKEN="" goreleaser --rm-dist --snapshot
     
   release:
+    deps:
+      - dlDbmateLinuxAmd64
+      - dlDbmateLinuxArm64
     cmds:
       - GITLAB_TOKEN="" goreleaser --rm-dist

@@ -13,22 +13,22 @@
 # RUN CGO_ENABLED=0 GOOS=linux go build . 
 # RUN upx k8see-importer
 
+# FROM busybox:1.35.0 AS builder
+# ARG GOOS
+# ARG GOARCH
+# # RUN apk update && apk add --no-cache curl bash
+# RUN wget  https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} && chmod +x dbmate-${GOOS}-${GOARCH} && mv dbmate-${GOOS}-${GOARCH} /usr/local/bin/dbmate
 
 
-FROM alpine:3.15.0 AS final
-LABEL maintainer="Sylvain Gaunet"
-LABEL description=""
+
+FROM scratch AS final
 ARG GOOS
 ARG GOARCH
 
-RUN apk update && apk add --no-cache curl bash
-RUN curl -LO  https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} && chmod +x dbmate-${GOOS}-${GOARCH} && mv dbmate-${GOOS}-${GOARCH} /usr/local/bin/dbmate
-RUN addgroup -S k8see_group -g 1000 && adduser -S k8see -G k8see_group --uid 1000
-WORKDIR /opt/k8see-importer
+COPY resources /
 COPY k8see-importer /opt/k8see-importer/k8see-importer
-COPY entrypoint.sh /opt/k8see-importer/entrypoint.sh 
-COPY db /opt/k8see-importer/db
-RUN chmod +x /opt/k8see-importer/entrypoint.sh && touch /opt/k8see-importer/conf.yaml && chmod 777 /opt/k8see-importer/conf.yaml
+COPY cots/dbmate-${GOOS}-${GOARCH} /usr/local/bin/dbmate
+# COPY --from=builder /usr/local/bin/dbmate /usr/local/bin/dbmate
+WORKDIR /opt/k8see-importer
 USER k8see
-ENTRYPOINT ["/opt/k8see-importer/entrypoint.sh"]
-CMD [ "/opt/k8see-importer/k8see-importer","-f","/opt/k8see-importer/conf.yaml" ]
+CMD [ "/opt/k8see-importer/k8see-importer" ]
