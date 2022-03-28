@@ -10,8 +10,6 @@ The 3 tools are :
 * [k8see-webui](https://github.com/sgaunet/k8see-webui) : Web interface to query the database
 * [k8see-deploy](https://github.com/sgaunet/k8see-deploy) : kubernetes manifests to deploy k8see-exporter and also the whole procedure to deploy a full test environment in a k8s cluster (with kind).
 
-**It's actually in development, not production ready**
-
 # k8see-importer
 
 The image is on docker hub : sgaunet/k8see-importer:**version**
