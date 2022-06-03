@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis/v7"
@@ -18,18 +19,20 @@ import (
 )
 
 const consumersGroup string = "k8see-consumer-group"
+const defaultDataRetentionInDays = 30
 
 type appK8sRedis2Db struct {
-	redisHost     string
-	redisPort     string
-	redisPassword string
-	redisStream   string
-	dbHost        string
-	dbPort        string
-	dbUser        string
-	dbPassword    string
-	dbName        string
-	redisClient   *redis.Client
+	redisHost           string
+	redisPort           string
+	redisPassword       string
+	redisStream         string
+	dbHost              string
+	dbPort              string
+	dbUser              string
+	dbPassword          string
+	dbName              string
+	dataRetentionInDays int
+	redisClient         *redis.Client
 }
 
 var log = logrus.New()
@@ -80,12 +83,22 @@ func main() {
 		cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
 		cfg.RedisStream = os.Getenv("REDIS_STREAM")
 		cfg.LogLevel = os.Getenv("LOGLEVEL")
+		retention := os.Getenv("DATA_RETENTION_IN_DAYS")
+		cfg.DataRetentionInDays, err = strconv.Atoi(retention)
+		if retention == "" || err != nil {
+			log.Infof("data retention fixed to %d days", defaultDataRetentionInDays)
+			cfg.DataRetentionInDays = defaultDataRetentionInDays
+		}
 	} else {
 		cfg, err = ReadyamlConfigFile(fileConfigName)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
+	}
+	if cfg.DataRetentionInDays <= 0 {
+		log.Infof("data retention fixed to %d days", defaultDataRetentionInDays)
+		cfg.DataRetentionInDays = defaultDataRetentionInDays
 	}
 
 	initTrace(cfg.LogLevel)
@@ -101,7 +114,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := NewApp(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, cfg.RedisStream, cfg.DbHost, cfg.DbPort, cfg.DbUser, cfg.DbName, cfg.DbPassword)
+	app := NewApp(cfg)
 	for {
 		time.Sleep(2 * time.Second)
 		err = app.InitConsumer()
@@ -179,18 +192,20 @@ func initEnvVarForDbmate(cfg YamlConfig) {
 }
 
 // NewApp is the factory to get a new instance of the application
-func NewApp(redisHost string, redisPort string, redisPassword string, redisStream string, dbHost string, dbPort string, dbUser string, dbName string, dbPassword string) *appK8sRedis2Db {
+func NewApp(cfg YamlConfig) *appK8sRedis2Db {
 	app := appK8sRedis2Db{
-		redisHost:     redisHost,
-		redisPort:     redisPort,
-		redisPassword: redisPassword,
-		redisStream:   redisStream,
-		dbHost:        dbHost,
-		dbPort:        dbPort,
-		dbName:        dbName,
-		dbUser:        dbUser,
-		dbPassword:    dbPassword,
+		redisHost:           cfg.RedisHost,
+		redisPort:           cfg.RedisPort,
+		redisPassword:       cfg.RedisPassword,
+		redisStream:         cfg.RedisStream,
+		dbHost:              cfg.DbHost,
+		dbPort:              cfg.DbPort,
+		dbName:              cfg.DbName,
+		dbUser:              cfg.DbUser,
+		dbPassword:          cfg.DbPassword,
+		dataRetentionInDays: cfg.DataRetentionInDays,
 	}
+	go app.BackgroundPurge()
 	return &app
 }
 
@@ -316,6 +331,37 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 		return err
 	}
 	return err
+}
+
+func (a *appK8sRedis2Db) PurgeDB() error {
+	var err error
+	if !a.isConnectedToDB() {
+		cnx, err = a.cnxDB()
+		if err != nil {
+			log.Errorln(err.Error())
+			return err
+		}
+	}
+
+	sqlStatement := fmt.Sprintf("DELETE FROM k8sevents where exportedTime <= now() - INTERVAL '%d DAYS'", a.dataRetentionInDays)
+	r, err := cnx.Exec(sqlStatement)
+	if err != nil {
+		log.Errorf("Delete failed : %s\n", err.Error())
+		return err
+	}
+	rowsAffected, err := r.RowsAffected()
+	if err == nil {
+		log.Infof("PurgeDB : Delete %d rows", rowsAffected)
+	}
+	return err
+}
+
+func (a *appK8sRedis2Db) BackgroundPurge() {
+	a.PurgeDB()
+	tick := time.NewTicker(24 * time.Hour)
+	for range tick.C {
+		a.PurgeDB()
+	}
 }
 
 func (a *appK8sRedis2Db) isConnectedToDB() bool {

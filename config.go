@@ -9,16 +9,17 @@ import (
 
 // Struct representing the yaml configuration file passed as a parameter to the program
 type YamlConfig struct {
-	DbHost        string `yaml:"dbhost"`
-	DbPort        string `yaml:"dbport"`
-	DbUser        string `yaml:"dbuser"`
-	DbPassword    string `yaml:"dbpassword"`
-	DbName        string `yaml:"dbname"`
-	LogLevel      string `yaml:"loglevel"`
-	RedisHost     string `yaml:"redis_host"`
-	RedisPort     string `yaml:"redis_port"`
-	RedisPassword string `yaml:"redis_password"`
-	RedisStream   string `yaml:"redis_stream"`
+	DbHost              string `yaml:"dbhost"`
+	DbPort              string `yaml:"dbport"`
+	DbUser              string `yaml:"dbuser"`
+	DbPassword          string `yaml:"dbpassword"`
+	DbName              string `yaml:"dbname"`
+	LogLevel            string `yaml:"loglevel"`
+	RedisHost           string `yaml:"redis_host"`
+	RedisPort           string `yaml:"redis_port"`
+	RedisPassword       string `yaml:"redis_password"`
+	RedisStream         string `yaml:"redis_stream"`
+	DataRetentionInDays int    `yaml:"data_retention_in_days"`
 }
 
 func ReadyamlConfigFile(filename string) (YamlConfig, error) {
