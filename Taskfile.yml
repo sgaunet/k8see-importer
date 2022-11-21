@@ -21,7 +21,7 @@ tasks:
       GOOS: linux
       GOARCH: amd64
     cmds:
-      - wget https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
+      - wget https://github.com/amacneil/dbmate/releases/download/v1.16.0/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
       - chmod +x cots/dbmate-${GOOS}-${GOARCH}
       - upx cots/dbmate-${GOOS}-${GOARCH}
     generates:
@@ -32,7 +32,7 @@ tasks:
       GOOS: linux
       GOARCH: arm64
     cmds:
-      - wget https://github.com/amacneil/dbmate/releases/download/v1.12.1/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
+      - wget https://github.com/amacneil/dbmate/releases/download/v1.16.0/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
       - chmod +x cots/dbmate-${GOOS}-${GOARCH}
       - upx cots/dbmate-${GOOS}-${GOARCH}
     generates:
