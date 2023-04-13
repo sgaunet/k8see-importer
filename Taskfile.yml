@@ -54,11 +54,11 @@ tasks:
       - dlDbmateLinuxAmd64
       - dlDbmateLinuxArm64
     cmds:
-      - GITLAB_TOKEN="" goreleaser --rm-dist --snapshot
+      - GITLAB_TOKEN="" goreleaser --clean --snapshot
     
   release:
     deps:
       - dlDbmateLinuxAmd64
       - dlDbmateLinuxArm64
     cmds:
-      - GITLAB_TOKEN="" goreleaser --rm-dist
+      - GITLAB_TOKEN="" goreleaser --clean

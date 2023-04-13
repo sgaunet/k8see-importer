@@ -2,7 +2,7 @@ project_name: "k8see-importer"
 before:
   hooks:
     # You may remove this if you don't use go modules.
-    - go mod download
+    - go get
     # you may remove this if you don't need go generate
     #- go generate ./...
 builds:
@@ -29,17 +29,11 @@ builds:
     goarch:
       - amd64
     id: win
+
 archives:
   - name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
-    replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
-    format_overrides:
-    - goos: windows
-      format: zip
+    format: binary
+
 checksum:
   name_template: 'checksums.txt'
 snapshot:
@@ -96,9 +90,7 @@ docker_manifests:
       - sgaunet/{{ .ProjectName }}:latest-amd64
       - sgaunet/{{ .ProjectName }}:latest-arm64v8
 
-source:
-  # https://goreleaser.com/customization/source/
-  enabled: true
+
 changelog:
   sort: asc
   filters:
