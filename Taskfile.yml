@@ -7,16 +7,18 @@ vars:
 
 tasks:
   default:
+    desc: "List all tasks"
+    cmds:
+      - task -a
+
+  build:
+    desc: "Build the binary"
     cmds:
       - go mod tidy
       - CGO_ENABLED=0 go build .
-      - upx ./{{.BINFILE}}
-    # silent: true
-    method: checksum
-    generates:
-      - "{{.BINFILE}}"
 
   dlDbmateLinuxAmd64:
+    internal: true
     env:
       GOOS: linux
       GOARCH: amd64
@@ -28,6 +30,7 @@ tasks:
       - cots/dbmate-${GOOS}-${GOARCH}
 
   dlDbmateLinuxArm64:
+    internal: true
     env:
       GOOS: linux
       GOARCH: arm64
@@ -39,6 +42,7 @@ tasks:
       - cots/dbmate-${GOOS}-${GOARCH}
 
   image:
+    desc: "Build and push the image"
     env:
       GOOS: linux
       GOARCH: amd64
@@ -50,6 +54,7 @@ tasks:
       - docker push {{.IMG}}
 
   snapshot:
+    desc: "Create a snapshot"
     deps:
       - dlDbmateLinuxAmd64
       - dlDbmateLinuxArm64
@@ -57,6 +62,7 @@ tasks:
       - GITLAB_TOKEN="" goreleaser --clean --snapshot
     
   release:
+    desc: "Create a release"
     deps:
       - dlDbmateLinuxAmd64
       - dlDbmateLinuxArm64
