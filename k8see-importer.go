@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -8,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v7"
+	"github.com/redis/go-redis/v9"
 
 	"database/sql"
 
@@ -212,16 +213,17 @@ func NewApp(cfg YamlConfig) *appK8sRedis2Db {
 // InitConsumer initialise redisClient
 func (a *appK8sRedis2Db) InitConsumer() error {
 	var err error
+	ctx := context.TODO()
 	addr := fmt.Sprintf("%s:%s", a.redisHost, a.redisPort)
 	a.redisClient = redis.NewClient(&redis.Options{
 		Addr: addr,
 	})
-	_, err = a.redisClient.Ping().Result()
+	_, err = a.redisClient.Ping(ctx).Result()
 	if err != nil {
 		return err
 	}
 	log.Infoln("Connected to Redis server")
-	err = a.redisClient.XGroupCreate(a.redisStream, consumersGroup, "0").Err()
+	err = a.redisClient.XGroupCreate(ctx, a.redisStream, consumersGroup, "0").Err()
 	if err != nil {
 		log.Errorln(err.Error())
 	}
@@ -230,6 +232,7 @@ func (a *appK8sRedis2Db) InitConsumer() error {
 
 func (a *appK8sRedis2Db) redis2PG() error {
 	var err error
+	ctx := context.TODO()
 	cnx, err = a.cnxDB()
 	if err != nil {
 		return err
@@ -241,7 +244,7 @@ func (a *appK8sRedis2Db) redis2PG() error {
 
 	uniqueID := xid.New().String()
 	for {
-		entries, err := a.redisClient.XReadGroup(&redis.XReadGroupArgs{
+		entries, err := a.redisClient.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    consumersGroup,
 			Consumer: uniqueID,
 			Streams:  []string{a.redisStream, ">"},
@@ -267,7 +270,7 @@ func (a *appK8sRedis2Db) redis2PG() error {
 			if err != nil {
 				log.Errorln(err.Error())
 			} else {
-				a.redisClient.XAck(a.redisStream, consumersGroup, messageID)
+				a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID)
 			}
 		}
 	}
