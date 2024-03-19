@@ -5,11 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sgaunet/k8see-importer/internal/database"
 
 	"database/sql"
 
@@ -171,20 +171,22 @@ func isConfigValid(cfg YamlConfig) (res bool) {
 }
 
 func initDB() error {
+	pgdsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", os.Getenv("DBUSER"), os.Getenv("DBPASSWORD"), os.Getenv("DBHOST"), os.Getenv("DBPORT"), os.Getenv("DBNAME"))
 	log.Infoln("INFO: Wait for database connection")
-	out, err := exec.Command("dbmate", "wait").Output()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(30*time.Second))
+	defer cancel()
+	err := database.WaitForDB(ctx, pgdsn)
 	if err != nil {
-		return fmt.Errorf("failed to execute : dbmate wait")
+		return err
 	}
-	log.Infoln(string(out))
+
 	log.Infoln("INFO: Database is ready")
 	log.Infoln("INFO: create the database (if it does not already exist) and run any pending migrations")
-	out, err = exec.Command("dbmate", "up").Output()
+	db, err := sql.Open("postgres", pgdsn)
 	if err != nil {
-		return fmt.Errorf("failed to execute : dbmate up")
+		return err
 	}
-	log.Infoln(string(out))
-	return nil
+	return database.Migrate(db)
 }
 
 func initEnvVarForDbmate(cfg YamlConfig) {

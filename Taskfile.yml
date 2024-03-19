@@ -17,52 +17,26 @@ tasks:
       - go mod tidy
       - CGO_ENABLED=0 go build .
 
-  dlDbmateLinuxAmd64:
-    internal: true
-    env:
-      GOOS: linux
-      GOARCH: amd64
-    cmds:
-      - wget https://github.com/amacneil/dbmate/releases/download/v1.16.0/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
-      - chmod +x cots/dbmate-${GOOS}-${GOARCH}
-    generates:
-      - cots/dbmate-${GOOS}-${GOARCH}
-
-  dlDbmateLinuxArm64:
-    internal: true
-    env:
-      GOOS: linux
-      GOARCH: arm64
-    cmds:
-      - wget https://github.com/amacneil/dbmate/releases/download/v1.16.0/dbmate-${GOOS}-${GOARCH} -O cots/dbmate-${GOOS}-${GOARCH}
-      - chmod +x cots/dbmate-${GOOS}-${GOARCH}
-    generates:
-      - cots/dbmate-${GOOS}-${GOARCH}
-
   image:
-    desc: "Build and push the image"
-    env:
-      GOOS: linux
-      GOARCH: amd64
+    desc: "Build the image"
     deps: 
-    - default
-    - dlDbmateLinuxAmd64
+    - build
     cmds:
-      - docker build --build-arg GOOS=$GOOS --build-arg GOARCH=$GOARCH . -t {{.IMG}}
+      - docker build . -t {{.IMG}}
+
+  push:
+    desc: "Build and push the image (latest)"
+    deps: 
+    - image
+    cmds:
       - docker push {{.IMG}}
 
   snapshot:
     desc: "Create a snapshot"
-    deps:
-      - dlDbmateLinuxAmd64
-      - dlDbmateLinuxArm64
     cmds:
       - GITLAB_TOKEN="" goreleaser --clean --snapshot
     
   release:
     desc: "Create a release"
-    deps:
-      - dlDbmateLinuxAmd64
-      - dlDbmateLinuxArm64
     cmds:
       - GITLAB_TOKEN="" goreleaser --clean
