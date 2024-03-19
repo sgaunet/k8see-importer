@@ -13,7 +13,7 @@ services:
   #    - 6379:6379
 
   bdd:
-    image: postgres:12.5-alpine
+    image: postgres:16.2-alpine
     # restart: always
     environment:
       - POSTGRES_PASSWORD=password
