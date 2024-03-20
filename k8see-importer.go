@@ -108,8 +108,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Init DB with dbmate
-	initEnvVarForDbmate(cfg)
 	err = initDB()
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -188,11 +186,6 @@ func initDB() error {
 		return err
 	}
 	return database.Migrate(db)
-}
-
-func initEnvVarForDbmate(cfg config.YamlConfig) {
-	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DbUser, cfg.DbPassword, cfg.DbHost, cfg.DbPort, cfg.DbName)
-	os.Setenv("DATABASE_URL", dbUrl)
 }
 
 // NewApp is the factory to get a new instance of the application
