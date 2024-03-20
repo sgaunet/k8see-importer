@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sgaunet/k8see-importer/internal/config"
 	"github.com/sgaunet/k8see-importer/internal/database"
 
 	"database/sql"
@@ -66,7 +67,7 @@ func initTrace(debugLevel string) {
 
 func main() {
 	var err error
-	var cfg YamlConfig
+	var cfg config.YamlConfig
 	var fileConfigName string
 	flag.StringVar(&fileConfigName, "f", "", "YAML file to parse.")
 	flag.Parse()
@@ -91,7 +92,7 @@ func main() {
 			cfg.DataRetentionInDays = defaultDataRetentionInDays
 		}
 	} else {
-		cfg, err = ReadyamlConfigFile(fileConfigName)
+		cfg, err = config.ReadyamlConfigFile(fileConfigName)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -133,7 +134,7 @@ func main() {
 	}
 }
 
-func isConfigValid(cfg YamlConfig) (res bool) {
+func isConfigValid(cfg config.YamlConfig) (res bool) {
 	res = true
 	if cfg.DbHost == "" {
 		log.Errorln("No DbHost set in environment variable or configuration file")
@@ -189,13 +190,13 @@ func initDB() error {
 	return database.Migrate(db)
 }
 
-func initEnvVarForDbmate(cfg YamlConfig) {
+func initEnvVarForDbmate(cfg config.YamlConfig) {
 	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DbUser, cfg.DbPassword, cfg.DbHost, cfg.DbPort, cfg.DbName)
 	os.Setenv("DATABASE_URL", dbUrl)
 }
 
 // NewApp is the factory to get a new instance of the application
-func NewApp(cfg YamlConfig) *appK8sRedis2Db {
+func NewApp(cfg config.YamlConfig) *appK8sRedis2Db {
 	app := appK8sRedis2Db{
 		redisHost:           cfg.RedisHost,
 		redisPort:           cfg.RedisPort,
