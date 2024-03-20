@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -21,7 +20,6 @@ import (
 )
 
 const consumersGroup string = "k8see-consumer-group"
-const defaultDataRetentionInDays = 30
 
 type appK8sRedis2Db struct {
 	redisHost           string
@@ -67,7 +65,7 @@ func initTrace(debugLevel string) {
 
 func main() {
 	var err error
-	var cfg config.YamlConfig
+	var cfg *config.YamlConfig
 	var fileConfigName string
 	flag.StringVar(&fileConfigName, "f", "", "YAML file to parse.")
 	flag.Parse()
@@ -75,38 +73,21 @@ func main() {
 	if fileConfigName == "" {
 		log.Infoln("No config file specified.")
 		log.Infoln("Try to get configuration with environment variable")
-		cfg.DbHost = os.Getenv("DBHOST")
-		cfg.DbName = os.Getenv("DBNAME")
-		cfg.DbPassword = os.Getenv("DBPASSWORD")
-		cfg.DbPort = os.Getenv("DBPORT")
-		cfg.DbUser = os.Getenv("DBUSER")
-		cfg.RedisHost = os.Getenv("REDIS_HOST")
-		cfg.RedisPort = os.Getenv("REDIS_PORT")
-		cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
-		cfg.RedisStream = os.Getenv("REDIS_STREAM")
-		cfg.LogLevel = os.Getenv("LOGLEVEL")
-		retention := os.Getenv("DATA_RETENTION_IN_DAYS")
-		cfg.DataRetentionInDays, err = strconv.Atoi(retention)
-		if retention == "" || err != nil {
-			log.Infof("data retention fixed to %d days", defaultDataRetentionInDays)
-			cfg.DataRetentionInDays = defaultDataRetentionInDays
-		}
+		cfg = config.LoadConfigFromEnv()
 	} else {
-		cfg, err = config.ReadyamlConfigFile(fileConfigName)
+		cfg, err = config.LoadConfigFromFile(fileConfigName)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
 	}
-	if cfg.DataRetentionInDays <= 0 {
-		log.Infof("data retention fixed to %d days", defaultDataRetentionInDays)
-		cfg.DataRetentionInDays = defaultDataRetentionInDays
+
+	if err := cfg.IsConfigValid(); err != nil {
+		log.Errorln(err.Error())
+		os.Exit(1)
 	}
 
 	initTrace(cfg.LogLevel)
-	if !isConfigValid(cfg) {
-		os.Exit(1)
-	}
 
 	err = initDB()
 	if err != nil {
@@ -114,7 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := NewApp(cfg)
+	app := NewApp(*cfg)
 	for {
 		time.Sleep(2 * time.Second)
 		err = app.InitConsumer()
@@ -130,43 +111,6 @@ func main() {
 			continue
 		}
 	}
-}
-
-func isConfigValid(cfg config.YamlConfig) (res bool) {
-	res = true
-	if cfg.DbHost == "" {
-		log.Errorln("No DbHost set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.DbName == "" {
-		log.Errorln("No DbName set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.DbUser == "" {
-		log.Errorln("No DbUser set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.DbPassword == "" {
-		log.Errorln("No DbPassword set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.DbPort == "" {
-		log.Errorln("No DbPort set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.RedisHost == "" {
-		log.Errorln("No RedisHost set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.RedisStream == "" {
-		log.Errorln("No RedisStream set in environment variable or configuration file")
-		res = false
-	}
-	if cfg.RedisPort == "" {
-		log.Errorln("No RedisPort set in environment variable or configuration file")
-		res = false
-	}
-	return res
 }
 
 func initDB() error {
