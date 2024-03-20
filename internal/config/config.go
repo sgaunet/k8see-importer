@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"gopkg.in/yaml.v2"
 )
@@ -25,7 +25,7 @@ type YamlConfig struct {
 func ReadyamlConfigFile(filename string) (YamlConfig, error) {
 	var yamlConfig YamlConfig
 
-	yamlFile, err := ioutil.ReadFile(filename)
+	yamlFile, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Printf("Error reading YAML file: %s\n", err)
 		return yamlConfig, err
