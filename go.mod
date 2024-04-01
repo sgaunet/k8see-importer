@@ -10,7 +10,7 @@ require (
 	github.com/rs/xid v1.5.0
 	github.com/sgaunet/dsn/v2 v2.2.4
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
