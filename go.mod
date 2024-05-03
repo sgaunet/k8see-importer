@@ -3,7 +3,7 @@ module github.com/sgaunet/k8see-importer
 go 1.19
 
 require (
-	github.com/go-playground/validator/v10 v10.19.0
+	github.com/go-playground/validator/v10 v10.20.0
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.20.0
 	github.com/redis/go-redis/v9 v9.5.1
