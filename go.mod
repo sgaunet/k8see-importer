@@ -8,7 +8,7 @@ require (
 	github.com/pressly/goose/v3 v3.20.0
 	github.com/redis/go-redis/v9 v9.5.2
 	github.com/rs/xid v1.5.0
-	github.com/sgaunet/dsn/v2 v2.2.4
+	github.com/sgaunet/dsn/v2 v2.3.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	gopkg.in/yaml.v2 v2.4.0
