@@ -1,3 +1,4 @@
+version: 2
 project_name: "k8see-importer"
 before:
   hooks:
@@ -23,9 +24,6 @@ archives:
 
 checksum:
   name_template: 'checksums.txt'
-snapshot:
-  name_template: "{{ .Tag }}"
-
 
 dockers:
   # https://goreleaser.com/customization/docker/
@@ -45,7 +43,6 @@ dockers:
       - "--build-arg=GOARCH=amd64"
     extra_files:
     - resources
-    - cots
 
   - use: buildx
     goos: linux
@@ -63,8 +60,6 @@ dockers:
       - "--build-arg=GOARCH=arm64"
     extra_files:
     - resources
-    - cots
-
 
 docker_manifests:
   # https://goreleaser.com/customization/docker_manifest/
