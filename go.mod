@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/go-playground/validator/v10 v10.24.0
 	github.com/lib/pq v1.10.9
-	github.com/pressly/goose/v3 v3.24.0
+	github.com/pressly/goose/v3 v3.24.1
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/rs/xid v1.6.0
 	github.com/sgaunet/dsn/v2 v2.3.0
