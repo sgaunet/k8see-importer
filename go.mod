@@ -6,7 +6,7 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.24.2
-	github.com/redis/go-redis/v9 v9.7.1
+	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.6.0
 	github.com/sgaunet/dsn/v2 v2.3.0
 	github.com/sirupsen/logrus v1.9.3
