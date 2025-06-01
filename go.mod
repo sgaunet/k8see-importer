@@ -1,11 +1,11 @@
 module github.com/sgaunet/k8see-importer
 
-go 1.19
+go 1.23.0
 
 require (
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/lib/pq v1.10.9
-	github.com/pressly/goose/v3 v3.24.2
+	github.com/pressly/goose/v3 v3.24.3
 	github.com/redis/go-redis/v9 v9.8.0
 	github.com/rs/xid v1.6.0
 	github.com/sgaunet/dsn/v2 v2.3.0
@@ -26,10 +26,10 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
