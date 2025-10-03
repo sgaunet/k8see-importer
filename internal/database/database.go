@@ -1,3 +1,4 @@
+// Package database provides database migration and connection utilities.
 package database
 
 import (
@@ -11,9 +12,12 @@ import (
 	"github.com/sgaunet/dsn/v2/pkg/dsn"
 )
 
+const dbPingRetryDelay = 200 * time.Millisecond
+
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
+// Migrate runs database migrations using the embedded SQL files.
 func Migrate(db *sql.DB) error {
 	goose.SetBaseFS(embedMigrations)
 	if err := goose.SetDialect("postgres"); err != nil {
@@ -26,7 +30,7 @@ func Migrate(db *sql.DB) error {
 	return goose.Up(db, "migrations")
 }
 
-// WaitForDB waits for the database to be ready
+// WaitForDB waits for the database to be ready.
 func WaitForDB(ctx context.Context, pgdsn string) error {
 	d, err := dsn.New(pgdsn)
 	if err != nil {
@@ -41,8 +45,8 @@ func WaitForDB(ctx context.Context, pgdsn string) error {
 				return
 			default:
 				if err == nil {
-					err = db.Ping()
-					defer db.Close()
+					err = db.PingContext(ctx)
+					_ = db.Close()
 					if err == nil {
 						fmt.Println("Database ready")
 						close(chDBReady)
@@ -50,7 +54,7 @@ func WaitForDB(ctx context.Context, pgdsn string) error {
 					}
 				}
 				// fmt.Println("Waiting for database to be ready...", pgdsn, err.Error())
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(dbPingRetryDelay)
 			}
 		}
 	}()

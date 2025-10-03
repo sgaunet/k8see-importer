@@ -1,3 +1,4 @@
+// Package config provides configuration loading and validation for the k8see-importer application.
 package config
 
 import (
@@ -9,23 +10,25 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// DefaultDataRetentionInDays is the default number of days to retain k8s events in the database.
 const DefaultDataRetentionInDays = 30
 
-// Struct representing the yaml configuration file passed as a parameter to the program
+// YamlConfig represents the yaml configuration file passed as a parameter to the program.
 type YamlConfig struct {
-	DbHost              string `yaml:"dbhost" validate:"required"`
-	DbPort              string `yaml:"dbport" validate:"required,gte=1,lte=65535"`
-	DbUser              string `yaml:"dbuser" validate:"required"`
-	DbPassword          string `yaml:"dbpassword" validate:"required"`
-	DbName              string `yaml:"dbname" validate:"required"`
-	LogLevel            string `yaml:"loglevel" `
-	RedisHost           string `yaml:"redis_host" validate:"required"`
-	RedisPort           string `yaml:"redis_port" validate:"required"`
+	DbHost              string `validate:"required"                 yaml:"dbhost"`
+	DbPort              string `validate:"required,gte=1,lte=65535" yaml:"dbport"`
+	DbUser              string `validate:"required"                 yaml:"dbuser"`
+	DbPassword          string `validate:"required"                 yaml:"dbpassword"`
+	DbName              string `validate:"required"                 yaml:"dbname"`
+	LogLevel            string `yaml:"loglevel"`
+	RedisHost           string `validate:"required"                 yaml:"redis_host"`
+	RedisPort           string `validate:"required"                 yaml:"redis_port"`
 	RedisPassword       string `yaml:"redis_password"`
-	RedisStream         string `yaml:"redis_stream" validate:"required"`
-	DataRetentionInDays int    `yaml:"data_retention_in_days" validate:"required,gte=1"`
+	RedisStream         string `validate:"required"                 yaml:"redis_stream"`
+	DataRetentionInDays int    `validate:"required,gte=1"           yaml:"data_retention_in_days"`
 }
 
+// LoadConfigFromFile loads and parses the YAML configuration from the specified file.
 func LoadConfigFromFile(filename string) (*YamlConfig, error) {
 	var yamlConfig YamlConfig
 	yamlFile, err := os.ReadFile(filename)
@@ -41,6 +44,7 @@ func LoadConfigFromFile(filename string) (*YamlConfig, error) {
 	return &yamlConfig, err
 }
 
+// LoadConfigFromEnv loads configuration from environment variables.
 func LoadConfigFromEnv() *YamlConfig {
 	var err error
 	var cfg YamlConfig
@@ -62,6 +66,7 @@ func LoadConfigFromEnv() *YamlConfig {
 	return &cfg
 }
 
+// IsConfigValid validates the configuration using struct tags.
 func (cfg *YamlConfig) IsConfigValid() error {
 	validate := validator.New()
 	return validate.Struct(*cfg)
