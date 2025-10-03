@@ -1,6 +1,10 @@
 [![GitHub release](https://img.shields.io/github/release/sgaunet/k8see-importer.svg)](https://github.com/sgaunet/k8see-importer/releases/latest)
 ![GitHub Downloads](https://img.shields.io/github/downloads/sgaunet/k8see-importer/total)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sgaunet/k8see-importer)](https://goreportcard.com/report/github.com/sgaunet/k8see-importer)
+[![linter](https://github.com/sgaunet/k8see-importer/actions/workflows/linter.yml/badge.svg)](https://github.com/sgaunet/k8see-importer/actions/workflows/linter.yml)
+[![Snapshot Build](https://github.com/sgaunet/k8see-importer/actions/workflows/snapshot.yml/badge.svg)](https://github.com/sgaunet/k8see-importer/actions/workflows/snapshot.yml)
+[![Release Build](https://github.com/sgaunet/k8see-importer/actions/workflows/release.yml/badge.svg)](https://github.com/sgaunet/k8see-importer/actions/workflows/release.yml)
+[![GoDoc](https://godoc.org/github.com/sgaunet/k8see-importer?status.svg)](https://godoc.org/github.com/sgaunet/k8see-importer)
 [![License](https://img.shields.io/github/license/sgaunet/k8see-importer.svg)](LICENSE)
 
 # k8see (Kubernetes Events Exporter)
