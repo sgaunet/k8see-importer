@@ -17,7 +17,7 @@ The 3 tools are :
 
 # k8see-importer
 
-The image is on docker hub : sgaunet/k8see-importer:**version**
+The image is on GitHub Container Registry: ghcr.io/sgaunet/k8see-importer:**version**
 
 A docker-compose in tst folder give an example to run the docker image. A binary release is also released if you prefer to run it with systemd.
 This tool need an access to a postgresql database (the user should have access to the DB and have the rights to create tables). Database migration is handled by [dbmate](https://github.com/amacneil/dbmate) tool.

@@ -24,7 +24,7 @@ services:
      - 25432:5432
 
   k8see-importer:
-    image: sgaunet/k8see-importer:latest
+    image: ghcr.io/sgaunet/k8see-importer:latest
     depends_on:
       - bdd
     environment:

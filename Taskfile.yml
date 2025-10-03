@@ -3,7 +3,7 @@ version: '3'
 
 vars:
   BINFILE: k8see-importer
-  IMG: sgaunet/k8see-importer:latest
+  IMG: ghcr.io/sgaunet/k8see-importer:latest
 
 tasks:
   default:
