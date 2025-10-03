@@ -2,6 +2,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/sgaunet/k8see-importer)](https://goreportcard.com/report/github.com/sgaunet/k8see-importer)
 ![GitHub Downloads](https://img.shields.io/github/downloads/sgaunet/k8see-importer/total)
 [![Maintainability](https://api.codeclimate.com/v1/badges/a9f697e496af2d41f3f1/maintainability)](https://codeclimate.com/github/sgaunet/k8see-importer/maintainability)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 # k8see (Kubernetes Events Exporter)
 
