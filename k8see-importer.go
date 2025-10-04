@@ -72,12 +72,13 @@ func initTrace(debugLevel string) {
 	}
 }
 
-func main() {
-	var err error
-	var cfg *config.YamlConfig
+func loadConfig() *config.YamlConfig {
 	var fileConfigName string
 	flag.StringVar(&fileConfigName, "f", "", "YAML file to parse.")
 	flag.Parse()
+
+	var cfg *config.YamlConfig
+	var err error
 
 	if fileConfigName == "" {
 		log.Infoln("No config file specified.")
@@ -95,61 +96,66 @@ func main() {
 		os.Exit(1)
 	}
 
-	initTrace(cfg.LogLevel)
+	return cfg
+}
 
-	err = initDB()
-	if err != nil {
-		log.Fatalln(err.Error())
+func runProcessingLoop(ctx context.Context, app *appK8sRedis2Db, done chan struct{}) {
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infoln("Shutting down gracefully...")
+			return
+		default:
+			time.Sleep(redisConnectRetryDelay)
+			err := app.InitConsumer(ctx)
+			if err != nil {
+				log.Errorln(err.Error())
+				continue
+			}
+
+			// Call the function that have an infinite loop
+			err = app.redis2PG(ctx)
+			if err != nil {
+				log.Errorln(err.Error())
+				continue
+			}
+		}
 	}
+}
 
-	// Setup signal handling for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func waitForShutdown(cancel context.CancelFunc, done chan struct{}) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	app := NewApp(*cfg)
-
-	// Start main processing loop in a goroutine
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-ctx.Done():
-				log.Infoln("Shutting down gracefully...")
-				return
-			default:
-				time.Sleep(redisConnectRetryDelay)
-				err = app.InitConsumer(ctx)
-				if err != nil {
-					log.Errorln(err.Error())
-					continue
-				}
-
-				// Call the function that have an infinite loop
-				err = app.redis2PG(ctx)
-				if err != nil {
-					log.Errorln(err.Error())
-					continue
-				}
-			}
-		}
-	}()
-
-	// Wait for shutdown signal
 	<-sigChan
 	log.Infoln("Received shutdown signal")
 	cancel()
 
-	// Wait for graceful shutdown with timeout
 	select {
 	case <-done:
 		log.Infoln("Shutdown complete")
 	case <-time.After(shutdownTimeout):
 		log.Warnln("Shutdown timeout exceeded, forcing exit")
 	}
+}
+
+func main() {
+	cfg := loadConfig()
+	initTrace(cfg.LogLevel)
+
+	if err := initDB(); err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := NewApp(*cfg)
+	done := make(chan struct{})
+
+	go runProcessingLoop(ctx, app, done)
+	waitForShutdown(cancel, done)
 }
 
 func initDB() error {
@@ -303,7 +309,10 @@ func (a *appK8sRedis2Db) redis2PG(ctx context.Context) error {
 			log.Debugln("eventTime=", eventTime)
 			log.Debugln("firstTime=", firstTime)
 			log.Debugln("exportedTime=", exportedTime)
-			err = a.addUpdateSubcode(ctx, exportedTime, eventTime, firstTime, nameStr, reasonStr, typeStr, messageStr, namespaceStr)
+			err = a.addUpdateSubcode(
+				ctx, exportedTime, eventTime, firstTime,
+				nameStr, reasonStr, typeStr, messageStr, namespaceStr,
+			)
 			if err != nil {
 				log.Errorln(err.Error())
 			} else {
