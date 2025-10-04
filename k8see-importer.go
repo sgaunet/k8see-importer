@@ -3,31 +3,36 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/xid"
 	"github.com/sgaunet/k8see-importer/internal/config"
 	"github.com/sgaunet/k8see-importer/internal/database"
-
-	"database/sql"
-
-	_ "github.com/lib/pq"
-
-	"github.com/rs/xid"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	consumersGroup            string        = "k8see-consumer-group"
-	dbPingRetryDelay                        = 200 * time.Millisecond
-	redisConnectRetryDelay                  = 2 * time.Second
-	dbConnectionTimeout                     = 30 * time.Second
-	redisReadCount            int64         = 2
-	purgeInterval                           = 24 * time.Hour
+	consumersGroup         string = "k8see-consumer-group"
+	dbPingRetryDelay              = 200 * time.Millisecond
+	redisConnectRetryDelay        = 2 * time.Second
+	dbConnectionTimeout           = 30 * time.Second
+	redisReadCount         int64  = 2
+	purgeInterval                 = 24 * time.Hour
+	shutdownTimeout               = 10 * time.Second
+	shutdownGracePeriod           = 100 * time.Millisecond
+	maxOpenConns                  = 25
+	maxIdleConns                  = 5
+	connMaxLifetime               = 5 * time.Minute
 )
 
 type appK8sRedis2Db struct {
@@ -42,22 +47,14 @@ type appK8sRedis2Db struct {
 	dbName              string
 	dataRetentionInDays int
 	redisClient         *redis.Client
+	dbConn              *sql.DB
+	shutdownChan        chan struct{}
 }
 
 var log = logrus.New()
-var cnx *sql.DB
 
 // initTrace initialize log instance with the level in parameter.
 func initTrace(debugLevel string) {
-	// Log as JSON instead of the default ASCII formatter.
-	// log.SetFormatter(&log.JSONFormatter{})
-	// log.SetFormatter(&log.TextFormatter{
-	// 	DisableColors: true,
-	// 	FullTimestamp: true,
-	// })
-
-	// Output to stdout instead of the default stderr
-	// Can be any io.Writer, see below for File example
 	log.SetOutput(os.Stdout)
 
 	switch debugLevel {
@@ -72,12 +69,13 @@ func initTrace(debugLevel string) {
 	}
 }
 
-func main() {
-	var err error
-	var cfg *config.YamlConfig
+func loadConfig() *config.YamlConfig {
 	var fileConfigName string
 	flag.StringVar(&fileConfigName, "f", "", "YAML file to parse.")
 	flag.Parse()
+
+	var cfg *config.YamlConfig
+	var err error
 
 	if fileConfigName == "" {
 		log.Infoln("No config file specified.")
@@ -95,63 +93,131 @@ func main() {
 		os.Exit(1)
 	}
 
+	return cfg
+}
+
+func runProcessingLoop(ctx context.Context, app *appK8sRedis2Db, done chan struct{}) {
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infoln("Shutting down gracefully...")
+			return
+		default:
+			time.Sleep(redisConnectRetryDelay)
+			err := app.InitConsumer(ctx)
+			if err != nil {
+				log.Errorln(err.Error())
+				continue
+			}
+
+			// Call the function that have an infinite loop
+			err = app.redis2PG(ctx)
+			if err != nil {
+				log.Errorln(err.Error())
+				continue
+			}
+		}
+	}
+}
+
+func waitForShutdown(cancel context.CancelFunc, done chan struct{}) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	<-sigChan
+	log.Infoln("Received shutdown signal")
+	cancel()
+
+	select {
+	case <-done:
+		log.Infoln("Shutdown complete")
+	case <-time.After(shutdownTimeout):
+		log.Warnln("Shutdown timeout exceeded, forcing exit")
+	}
+}
+
+func main() {
+	cfg := loadConfig()
 	initTrace(cfg.LogLevel)
 
-	err = initDB()
+	db, err := initDB(cfg)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
-	app := NewApp(*cfg)
-	for {
-		time.Sleep(redisConnectRetryDelay)
-		err = app.InitConsumer()
-		if err != nil {
-			log.Errorln(err.Error())
-			continue
-		}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-		// Call the function that have an infinite loop
-		err = app.redis2PG()
-		if err != nil {
-			log.Errorln(err.Error())
-			continue
+	app := NewApp(*cfg, db)
+	done := make(chan struct{})
+
+	go runProcessingLoop(ctx, app, done)
+	waitForShutdown(cancel, done)
+
+	// Signal background goroutines to stop
+	close(app.shutdownChan)
+
+	// Give background tasks a moment to clean up
+	time.Sleep(shutdownGracePeriod)
+
+	// Close database connection on shutdown
+	if err := app.dbConn.Close(); err != nil {
+		log.Errorf("Error closing database: %v", err)
+	}
+
+	// Close Redis connection if exists
+	if app.redisClient != nil {
+		if err := app.redisClient.Close(); err != nil {
+			log.Errorf("Error closing Redis: %v", err)
 		}
 	}
 }
 
-func initDB() error {
-	dbUser := os.Getenv("DBUSER")
-	dbPassword := os.Getenv("DBPASSWORD")
-	dbHost := os.Getenv("DBHOST")
-	dbPort := os.Getenv("DBPORT")
-	dbName := os.Getenv("DBNAME")
+func initDB(cfg *config.YamlConfig) (*sql.DB, error) {
 	pgdsn := fmt.Sprintf(
 		"postgres://%s:%s@%s/%s?sslmode=disable",
-		dbUser,
-		dbPassword,
-		net.JoinHostPort(dbHost, dbPort),
-		dbName,
+		cfg.DbUser,
+		cfg.DbPassword,
+		net.JoinHostPort(cfg.DbHost, cfg.DbPort),
+		cfg.DbName,
 	)
-	log.Infoln("INFO: Wait for database connection")
+	log.Infoln("Wait for database connection")
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(dbConnectionTimeout))
 	defer cancel()
 	err := database.WaitForDB(ctx, pgdsn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	log.Infoln("INFO: Database is ready")
-	log.Infoln("INFO: create the database (if it does not already exist) and run any pending migrations")
+	log.Infoln("Database is ready")
+	log.Infoln("Creating database schema and running migrations")
 	db, err := sql.Open("postgres", pgdsn)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return database.Migrate(db)
+
+	// Configure connection pool
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+
+	// Verify connection
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	if err := database.Migrate(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return db, nil
 }
 
 // NewApp is the factory to get a new instance of the application.
-func NewApp(cfg config.YamlConfig) *appK8sRedis2Db {
+func NewApp(cfg config.YamlConfig, db *sql.DB) *appK8sRedis2Db {
 	app := appK8sRedis2Db{
 		redisHost:           cfg.RedisHost,
 		redisPort:           cfg.RedisPort,
@@ -163,6 +229,8 @@ func NewApp(cfg config.YamlConfig) *appK8sRedis2Db {
 		dbUser:              cfg.DbUser,
 		dbPassword:          cfg.DbPassword,
 		dataRetentionInDays: cfg.DataRetentionInDays,
+		dbConn:              db,
+		shutdownChan:        make(chan struct{}),
 	}
 	go app.BackgroundPurge()
 	return &app
@@ -172,18 +240,25 @@ func NewApp(cfg config.YamlConfig) *appK8sRedis2Db {
 func (a *appK8sRedis2Db) BackgroundPurge() {
 	_ = a.PurgeDB()
 	tick := time.NewTicker(purgeInterval)
-	for range tick.C {
-		_ = a.PurgeDB()
+	defer tick.Stop()
+	for {
+		select {
+		case <-a.shutdownChan:
+			log.Infoln("BackgroundPurge: Shutting down")
+			return
+		case <-tick.C:
+			_ = a.PurgeDB()
+		}
 	}
 }
 
 // InitConsumer initialise redisClient.
-func (a *appK8sRedis2Db) InitConsumer() error {
+func (a *appK8sRedis2Db) InitConsumer(ctx context.Context) error {
 	var err error
-	ctx := context.TODO()
 	addr := fmt.Sprintf("%s:%s", a.redisHost, a.redisPort)
 	a.redisClient = redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:     addr,
+		Password: a.redisPassword,
 	})
 	_, err = a.redisClient.Ping(ctx).Result()
 	if err != nil {
@@ -199,46 +274,104 @@ func (a *appK8sRedis2Db) InitConsumer() error {
 
 // PurgeDB removes old k8s events from the database.
 func (a *appK8sRedis2Db) PurgeDB() error {
-	var err error
-	if !a.isConnectedToDB() {
-		cnx, err = a.cnxDB()
-		if err != nil {
-			log.Errorln(err.Error())
-			return err
-		}
-	}
-
-	ctx := context.TODO()
-	sqlStatement := fmt.Sprintf(
-		"DELETE FROM k8sevents where exportedTime <= now() - INTERVAL '%d DAYS'",
-		a.dataRetentionInDays,
-	)
-	r, err := cnx.ExecContext(ctx, sqlStatement)
+	ctx := context.Background()
+	sqlStatement := "DELETE FROM k8sevents WHERE exportedTime <= now() - $1 * INTERVAL '1 DAY'"
+	r, err := a.dbConn.ExecContext(ctx, sqlStatement, a.dataRetentionInDays)
 	if err != nil {
 		log.Errorf("Delete failed : %s\n", err.Error())
 		return err
 	}
 	rowsAffected, err := r.RowsAffected()
 	if err == nil {
-		log.Infof("PurgeDB : Delete %d rows", rowsAffected)
+		log.Infof("PurgeDB : Deleted %d rows", rowsAffected)
 	}
 	return err
 }
 
-func (a *appK8sRedis2Db) redis2PG() error {
-	var err error
-	ctx := context.TODO()
-	cnx, err = a.cnxDB()
-	if err != nil {
-		return err
+var (
+	errInvalidEventTime    = errors.New("invalid eventTime")
+	errInvalidFirstTime    = errors.New("invalid firstTime")
+	errInvalidExportedTime = errors.New("invalid exportedTime")
+	errInvalidName         = errors.New("invalid name")
+)
+
+type eventData struct {
+	eventTime    time.Time
+	firstTime    time.Time
+	exportedTime time.Time
+	name         string
+	reason       string
+	eventType    string
+	message      string
+	namespace    string
+}
+
+func extractEventData(values map[string]interface{}) (*eventData, error) {
+	eventTimeStr, ok := values["eventTime"].(string)
+	if !ok {
+		return nil, errInvalidEventTime
 	}
-	err = a.InitConsumer()
-	if err != nil {
-		return err
+	firstTimeStr, ok := values["firstTime"].(string)
+	if !ok {
+		return nil, errInvalidFirstTime
+	}
+	exportedTimeStr, ok := values["exportedTime"].(string)
+	if !ok {
+		return nil, errInvalidExportedTime
+	}
+	nameStr, ok := values["name"].(string)
+	if !ok {
+		return nil, errInvalidName
 	}
 
+	reasonStr, _ := values["reason"].(string)
+	typeStr, _ := values["type"].(string)
+	messageStr, _ := values["message"].(string)
+	namespaceStr, _ := values["namespace"].(string)
+
+	return &eventData{
+		eventTime:    convertStrToTime(eventTimeStr),
+		firstTime:    convertStrToTime(firstTimeStr),
+		exportedTime: convertStrToTime(exportedTimeStr),
+		name:         nameStr,
+		reason:       reasonStr,
+		eventType:    typeStr,
+		message:      messageStr,
+		namespace:    namespaceStr,
+	}, nil
+}
+
+func (a *appK8sRedis2Db) processMessage(ctx context.Context, messageID string, values map[string]interface{}) {
+	event, err := extractEventData(values)
+	if err != nil {
+		log.Warnf("Skipping message %s: %v", messageID, err)
+		return
+	}
+
+	log.Infof("NEW=> type=%s reason=%s name=%s", event.eventType, event.reason, event.name)
+	log.Debugf("eventTime=%v firstTime=%v exportedTime=%v", event.eventTime, event.firstTime, event.exportedTime)
+
+	err = a.addUpdateSubcode(
+		ctx, event.exportedTime, event.eventTime, event.firstTime,
+		event.name, event.reason, event.eventType, event.message, event.namespace,
+	)
+	if err != nil {
+		log.Errorln(err.Error())
+	} else {
+		a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID)
+	}
+}
+
+func (a *appK8sRedis2Db) redis2PG(ctx context.Context) error {
 	uniqueID := xid.New().String()
 	for {
+		select {
+		case <-ctx.Done():
+			log.Infoln("redis2PG: Context cancelled, stopping...")
+			return ctx.Err()
+		default:
+		}
+
 		entries, err := a.redisClient.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    consumersGroup,
 			Consumer: uniqueID,
@@ -250,31 +383,9 @@ func (a *appK8sRedis2Db) redis2PG() error {
 		if err != nil {
 			return err
 		}
+
 		for i := range entries[0].Messages {
-			messageID := entries[0].Messages[i].ID
-			values := entries[0].Messages[i].Values
-			eventTimeStr, _ := values["eventTime"].(string)
-			firstTimeStr, _ := values["firstTime"].(string)
-			exportedTimeStr, _ := values["exportedTime"].(string)
-			eventTime := convertStrToTime(eventTimeStr)
-			firstTime := convertStrToTime(firstTimeStr)
-			exportedTime := convertStrToTime(exportedTimeStr)
-			nameStr, _ := values["name"].(string)
-			reasonStr, _ := values["reason"].(string)
-			typeStr, _ := values["type"].(string)
-			messageStr, _ := values["message"].(string)
-			namespaceStr, _ := values["namespace"].(string)
-			log.Infof("NEW=> type=%s reason=%s name=%s\n", typeStr, reasonStr, nameStr)
-			log.Infof("      eventTime=%s firstTime=%s \n", eventTimeStr, firstTimeStr)
-			log.Debugln("eventTime=", eventTime)
-			log.Debugln("firstTime=", firstTime)
-			log.Debugln("exportedTime=", exportedTime)
-			err = a.addUpdateSubcode(exportedTime, eventTime, firstTime, nameStr, reasonStr, typeStr, messageStr, namespaceStr)
-			if err != nil {
-				log.Errorln(err.Error())
-			} else {
-				a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID)
-			}
+			a.processMessage(ctx, entries[0].Messages[i].ID, entries[0].Messages[i].Values)
 		}
 	}
 }
@@ -290,26 +401,8 @@ func convertStrToTime(str string) time.Time {
 	return newTime
 }
 
-func (a *appK8sRedis2Db) cnxDB() (*sql.DB, error) {
-	nbtries := 3
-	var db *sql.DB
-	var err error
-
-	for try := 1; try <= nbtries && !a.isConnectedToDB(); try++ {
-		psqlInfo := fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			a.dbHost, a.dbPort, a.dbUser, a.dbPassword, a.dbName,
-		)
-		db, err = sql.Open("postgres", psqlInfo)
-		if err != nil {
-			log.Fatalln("Failed to connect to database")
-		}
-	}
-
-	return db, err
-}
-
 func (a *appK8sRedis2Db) addUpdateSubcode(
+	ctx context.Context,
 	exportedTime time.Time,
 	firstTime time.Time,
 	eventTime time.Time,
@@ -319,20 +412,10 @@ func (a *appK8sRedis2Db) addUpdateSubcode(
 	eventMessage string,
 	eventNamespace string,
 ) error {
-	var err error
-	if !a.isConnectedToDB() {
-		cnx, err = a.cnxDB()
-		if err != nil {
-			log.Errorln(err.Error())
-			return err
-		}
-	}
-
-	ctx := context.TODO()
 	sqlStatement := `
 INSERT INTO k8sevents (exportedTime,firstTime,eventTime,name, reason, type,message,namespace)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-	_, err = cnx.ExecContext(
+	_, err := a.dbConn.ExecContext(
 		ctx,
 		sqlStatement,
 		exportedTime, firstTime, eventTime,
@@ -347,21 +430,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 		log.Debugln("eventReason=", eventReason)
 		log.Debugln("eventType=", eventType)
 		log.Debugln("eventMessage=", eventMessage)
-		log.Debugln("eventNamespace=", eventName)
+		log.Debugln("eventNamespace=", eventNamespace)
 		return err
 	}
-	return err
-}
-
-func (a *appK8sRedis2Db) isConnectedToDB() bool {
-	if cnx == nil {
-		return false
-	}
-	ctx := context.TODO()
-	err := cnx.PingContext(ctx)
-	if err != nil {
-		log.Errorln("Not connected to DB")
-		return false
-	}
-	return true
+	return nil
 }
