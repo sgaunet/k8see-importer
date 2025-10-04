@@ -24,17 +24,11 @@ tasks:
       - CGO_ENABLED=0 go build .
 
   image:
-    desc: "Build the image"
+    desc: "Build/Push the image"
     deps: 
-    - build
+    - snapshot
     cmds:
-      - docker build . -t {{.IMG}}
-
-  push:
-    desc: "Build and push the image (latest)"
-    deps: 
-    - image
-    cmds:
+      - docker tag ghcr.io/sgaunet/k8see-importer:latest-amd64 {{.IMG}}
       - docker push {{.IMG}}
 
   snapshot:
