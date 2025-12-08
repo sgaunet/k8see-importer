@@ -242,7 +242,9 @@ func NewApp(cfg config.YamlConfig, db *sql.DB) *appK8sRedis2Db {
 
 // BackgroundPurge runs PurgeDB periodically in the background.
 func (a *appK8sRedis2Db) BackgroundPurge() {
-	_ = a.PurgeDB()
+	if err := a.PurgeDB(); err != nil {
+		log.Errorf("Initial purge failed: %v", err)
+	}
 	tick := time.NewTicker(purgeInterval)
 	defer tick.Stop()
 	for {
@@ -251,7 +253,11 @@ func (a *appK8sRedis2Db) BackgroundPurge() {
 			log.Infoln("BackgroundPurge: Shutting down")
 			return
 		case <-tick.C:
-			_ = a.PurgeDB()
+			if err := a.PurgeDB(); err != nil {
+				log.Errorf("Background purge failed: %v", err)
+			} else {
+				log.Infoln("Background purge completed successfully")
+			}
 		}
 	}
 }
