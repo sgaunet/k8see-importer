@@ -24,7 +24,6 @@ import (
 
 const (
 	consumersGroup         string = "k8see-consumer-group"
-	dbPingRetryDelay              = 200 * time.Millisecond
 	redisConnectRetryDelay        = 2 * time.Second
 	dbConnectionTimeout           = 30 * time.Second
 	redisReadCount         int64  = 2
@@ -481,7 +480,12 @@ func (a *appK8sRedis2Db) addUpdateSubcode(
 ) error {
 	sqlStatement := `
 INSERT INTO k8sevents (exportedTime,firstTime,eventTime,name, reason, type,message,namespace)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (name, namespace, eventTime, firstTime) DO UPDATE
+  SET exportedTime = EXCLUDED.exportedTime,
+      reason = EXCLUDED.reason,
+      type = EXCLUDED.type,
+      message = EXCLUDED.message`
 	_, err := a.dbConn.ExecContext(
 		ctx,
 		sqlStatement,
