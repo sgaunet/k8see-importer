@@ -35,6 +35,8 @@ const (
 	maxOpenConns                  = 25
 	maxIdleConns                  = 5
 	connMaxLifetime               = 5 * time.Minute
+	maxRetries                    = 3
+	initialRetryDelay             = 100 * time.Millisecond
 )
 
 type appK8sRedis2Db struct {
@@ -381,22 +383,45 @@ func (a *appK8sRedis2Db) processMessage(ctx context.Context, messageID string, v
 	log.Infof("NEW=> type=%s reason=%s name=%s", event.eventType, event.reason, event.name)
 	log.Debugf("eventTime=%v firstTime=%v exportedTime=%v", event.eventTime, event.firstTime, event.exportedTime)
 
-	err = a.addUpdateSubcode(
-		ctx, event.exportedTime, event.eventTime, event.firstTime,
-		event.name, event.reason, event.eventType, event.message, event.namespace,
-	)
-	if err != nil {
-		log.Errorln(err.Error())
-		return
+	// Retry database insert with exponential backoff
+	var lastErr error
+	retryDelay := initialRetryDelay
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = a.addUpdateSubcode(
+			ctx, event.exportedTime, event.eventTime, event.firstTime,
+			event.name, event.reason, event.eventType, event.message, event.namespace,
+		)
+		if err == nil {
+			// Success - ACK the message
+			break
+		}
+
+		lastErr = err
+		if attempt < maxRetries {
+			log.Warnf("Database insert failed for message %s (attempt %d/%d): %v. Retrying in %v...",
+				messageID, attempt, maxRetries, err, retryDelay)
+			time.Sleep(retryDelay)
+			retryDelay *= 2 // Exponential backoff
+		}
 	}
 
+	// Handle final result
+	if lastErr != nil {
+		// All retries exhausted - log critical error and ACK to prevent infinite pending
+		log.Errorf(
+			"CRITICAL: Database insert failed for message %s after %d attempts: %v. "+
+				"Message will be acknowledged to prevent infinite pending, but data is LOST.",
+			messageID, maxRetries, lastErr)
+	}
+
+	// Always ACK the message (either success or after exhausting retries)
 	if a.redisClient == nil {
 		log.Warnln("Cannot ACK message: Redis client is nil")
 		return
 	}
 
 	if err := a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID).Err(); err != nil {
-		log.Warnf("Failed to acknowledge message %s: %v", messageID, err)
+		log.Errorf("Failed to acknowledge message %s: %v", messageID, err)
 	}
 }
 
