@@ -254,16 +254,27 @@ func (a *appK8sRedis2Db) BackgroundPurge() {
 
 // InitConsumer initialise redisClient.
 func (a *appK8sRedis2Db) InitConsumer(ctx context.Context) error {
-	var err error
+	// Close existing client if it exists
+	if a.redisClient != nil {
+		_ = a.redisClient.Close()
+		a.redisClient = nil
+	}
+
 	addr := fmt.Sprintf("%s:%s", a.redisHost, a.redisPort)
-	a.redisClient = redis.NewClient(&redis.Options{
+	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: a.redisPassword,
 	})
-	_, err = a.redisClient.Ping(ctx).Result()
+
+	_, err := client.Ping(ctx).Result()
 	if err != nil {
-		return err
+		_ = client.Close()
+		return fmt.Errorf("redis ping failed: %w", err)
 	}
+
+	// Only set if successful
+	a.redisClient = client
+
 	log.Infoln("Connected to Redis server")
 	err = a.redisClient.XGroupCreate(ctx, a.redisStream, consumersGroup, "0").Err()
 	if err != nil {
@@ -289,10 +300,11 @@ func (a *appK8sRedis2Db) PurgeDB() error {
 }
 
 var (
-	errInvalidEventTime    = errors.New("invalid eventTime")
-	errInvalidFirstTime    = errors.New("invalid firstTime")
-	errInvalidExportedTime = errors.New("invalid exportedTime")
-	errInvalidName         = errors.New("invalid name")
+	errInvalidEventTime      = errors.New("invalid eventTime")
+	errInvalidFirstTime      = errors.New("invalid firstTime")
+	errInvalidExportedTime   = errors.New("invalid exportedTime")
+	errInvalidName           = errors.New("invalid name")
+	errRedisClientNotInitialized = errors.New("redis client not initialized")
 )
 
 type eventData struct {
@@ -306,7 +318,7 @@ type eventData struct {
 	namespace    string
 }
 
-func extractEventData(values map[string]interface{}) (*eventData, error) {
+func extractEventData(values map[string]any) (*eventData, error) {
 	eventTimeStr, ok := values["eventTime"].(string)
 	if !ok {
 		return nil, errInvalidEventTime
@@ -341,7 +353,7 @@ func extractEventData(values map[string]interface{}) (*eventData, error) {
 	}, nil
 }
 
-func (a *appK8sRedis2Db) processMessage(ctx context.Context, messageID string, values map[string]interface{}) {
+func (a *appK8sRedis2Db) processMessage(ctx context.Context, messageID string, values map[string]any) {
 	event, err := extractEventData(values)
 	if err != nil {
 		log.Warnf("Skipping message %s: %v", messageID, err)
@@ -357,12 +369,24 @@ func (a *appK8sRedis2Db) processMessage(ctx context.Context, messageID string, v
 	)
 	if err != nil {
 		log.Errorln(err.Error())
-	} else {
-		a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID)
+		return
+	}
+
+	if a.redisClient == nil {
+		log.Warnln("Cannot ACK message: Redis client is nil")
+		return
+	}
+
+	if err := a.redisClient.XAck(ctx, a.redisStream, consumersGroup, messageID).Err(); err != nil {
+		log.Warnf("Failed to acknowledge message %s: %v", messageID, err)
 	}
 }
 
 func (a *appK8sRedis2Db) redis2PG(ctx context.Context) error {
+	if a.redisClient == nil {
+		return errRedisClientNotInitialized
+	}
+
 	uniqueID := xid.New().String()
 	for {
 		select {
