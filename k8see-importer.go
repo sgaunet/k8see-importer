@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,6 +48,7 @@ type appK8sRedis2Db struct {
 	dbName              string
 	dataRetentionInDays int
 	redisClient         *redis.Client
+	redisClientMu       sync.Mutex
 	dbConn              *sql.DB
 	shutdownChan        chan struct{}
 }
@@ -167,11 +169,13 @@ func main() {
 	}
 
 	// Close Redis connection if exists
+	app.redisClientMu.Lock()
 	if app.redisClient != nil {
 		if err := app.redisClient.Close(); err != nil {
 			log.Errorf("Error closing Redis: %v", err)
 		}
 	}
+	app.redisClientMu.Unlock()
 }
 
 func initDB(cfg *config.YamlConfig) (*sql.DB, error) {
@@ -254,6 +258,9 @@ func (a *appK8sRedis2Db) BackgroundPurge() {
 
 // InitConsumer initialise redisClient.
 func (a *appK8sRedis2Db) InitConsumer(ctx context.Context) error {
+	a.redisClientMu.Lock()
+	defer a.redisClientMu.Unlock()
+
 	// Close existing client if it exists
 	if a.redisClient != nil {
 		_ = a.redisClient.Close()
