@@ -29,6 +29,7 @@ const (
 	dbConnectionTimeout           = 30 * time.Second
 	redisReadCount         int64  = 2
 	purgeInterval                 = 24 * time.Hour
+	purgeTimeout                  = 5 * time.Minute
 	shutdownTimeout               = 10 * time.Second
 	shutdownGracePeriod           = 100 * time.Millisecond
 	maxOpenConns                  = 25
@@ -242,9 +243,12 @@ func NewApp(cfg config.YamlConfig, db *sql.DB) *appK8sRedis2Db {
 
 // BackgroundPurge runs PurgeDB periodically in the background.
 func (a *appK8sRedis2Db) BackgroundPurge() {
-	if err := a.PurgeDB(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), purgeTimeout)
+	if err := a.PurgeDB(ctx); err != nil {
 		log.Errorf("Initial purge failed: %v", err)
 	}
+	cancel()
+
 	tick := time.NewTicker(purgeInterval)
 	defer tick.Stop()
 	for {
@@ -253,11 +257,13 @@ func (a *appK8sRedis2Db) BackgroundPurge() {
 			log.Infoln("BackgroundPurge: Shutting down")
 			return
 		case <-tick.C:
-			if err := a.PurgeDB(); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), purgeTimeout)
+			if err := a.PurgeDB(ctx); err != nil {
 				log.Errorf("Background purge failed: %v", err)
 			} else {
 				log.Infoln("Background purge completed successfully")
 			}
+			cancel()
 		}
 	}
 }
@@ -297,17 +303,16 @@ func (a *appK8sRedis2Db) InitConsumer(ctx context.Context) error {
 }
 
 // PurgeDB removes old k8s events from the database.
-func (a *appK8sRedis2Db) PurgeDB() error {
-	ctx := context.Background()
+func (a *appK8sRedis2Db) PurgeDB(ctx context.Context) error {
 	sqlStatement := "DELETE FROM k8sevents WHERE exportedTime <= now() - $1 * INTERVAL '1 DAY'"
 	r, err := a.dbConn.ExecContext(ctx, sqlStatement, a.dataRetentionInDays)
 	if err != nil {
-		log.Errorf("Delete failed : %s\n", err.Error())
+		log.Errorf("Delete failed: %v", err)
 		return err
 	}
 	rowsAffected, err := r.RowsAffected()
 	if err == nil {
-		log.Infof("PurgeDB : Deleted %d rows", rowsAffected)
+		log.Infof("PurgeDB: Deleted %d rows", rowsAffected)
 	}
 	return err
 }
